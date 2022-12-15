@@ -1,0 +1,11 @@
+autoflake
+black
+duckdb
+isort
+mypy
+pandas
+pyspark
+python-dateutil
+pdoc
+tqdm
+databricks-sql-connector
