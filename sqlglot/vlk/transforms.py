@@ -225,16 +225,13 @@ def translate_udtf(expression: exp.Expression, db_prefix) -> exp.Expression:
 
 def values_to_union(expression: exp.Expression) -> exp.Expression:
     if isinstance(expression, exp.Values):
-
-        # Check if any references to columns is applicable
-        if len(set(expression.find_all(exp.Column))) > 0:
-            new_expr = None
-            for tpl in expression.expressions:
-                if new_expr is None:
-                    new_expr = exp.Select(expressions=tpl.expressions)
-                else:
-                    new_expr = exp.Union(this=new_expr, expression=exp.Select(expressions=tpl.expressions))
-            return new_expr
+        new_expr = None
+        for tpl in expression.expressions:
+            if new_expr is None:
+                new_expr = exp.Select(expressions=tpl.expressions)
+            else:
+                new_expr = exp.Union(this=new_expr, expression=exp.Select(expressions=tpl.expressions))
+        return exp.Subquery(this=new_expr)
 
     return expression
 

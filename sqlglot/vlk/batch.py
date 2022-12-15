@@ -79,10 +79,11 @@ class batchTranspile:
         self.db_prefix = db_prefix
         self.repo = Repo(root=self.root, scope=self.scope, filter=self.filter, db_prefix=self.db_prefix)
         self.schema = self.repo.get_schema_dict(view_metadata_csv=view_metadata_csv)
-        self.transpile_errors = None
-        self.test_errors = None
+        self.transpile_errors = pd.DataFrame(columns=["database", "schema", "table", "udf", "errortype"])
+        self.test_errors = pd.DataFrame(columns=["database", "schema", "table", "udf", "errortype"])
         self.outputdir = outputdir
         self.logdir = logdir
+        self.tested = False
 
         if not self.logdir:
             self.logdir = os.path.join(
@@ -102,6 +103,8 @@ class batchTranspile:
     def transpile(self):
         self.transpile_errors = pd.DataFrame(columns=["database", "schema", "table", "udf", "errortype"])
         logdir = os.path.join(self.logdir, "transpile")
+        self.tested = False
+
         self.flush_dir(logdir)
         self.flush_dir(self.outputdir)
 
@@ -135,7 +138,7 @@ class batchTranspile:
                     expr = transform(expression=expr, fun=annotate_udtf)
 
                     # # Get the fully qualified column names
-                    expr = qualify_columns(expression=expr, schema=self.schema, check_unknown_tables=False)
+                    expr = qualify_columns(expression=expr, schema=self.schema)
 
                     # Get the datatypes of columns
                     expr = annotate_types(expr, schema=self.schema)
@@ -155,39 +158,6 @@ class batchTranspile:
                     # Transform correlated tuples to a UNION ALL
                     expr = transform(expr, values_to_union)
 
-                    # # Normalize table references
-                    # expr = expr.transform(normalize_table_references)
-
-                    # # Normalize column references
-                    # expr = expr.transform(normalize_column_references)
-
-                    # # Normalize table aliases
-                    # expr = expr.transform(normalize_table_aliases)
-
-                    # # Normalize column aliases
-                    # expr = expr.transform(normalize_column_aliases)
-
-                    # # # Annotate UDTF attributes with a datatype
-                    # expr = expr.transform(annotate_udtf)
-
-                    # # # Get the fully qualified column names
-                    # expr = qualify_columns(expression=expr, schema=self.schema, check_unknown_tables=False)
-
-                    # # Get the datatypes of columns
-                    # expr = annotate_types(expr, schema=self.schema)
-
-                    # # Translate text concat functions
-                    # expr = expr.transform(translate_add_to_dpipe)
-
-                    # # Change database and table references according to hive tables
-                    # expr = expr.transform(translate_db_and_table, self.db_prefix)
-
-                    # # Change database and function references according to hive structure
-                    # expr = expr.transform(translate_udtf, "vl_dwh_")
-
-                    # # Transform correlated subqueries to a regular left join, lateral or cross join
-                    # expr = expr.transform(subquery_to_join)
-
                     # Set VLK custom generator functions
                     dbx = sqlglot.Dialect.get_or_raise("databricks")()
                     dbx_tfm = dbx.Generator.TRANSFORMS
@@ -201,6 +171,8 @@ class batchTranspile:
                         self.outputdir,
                         f"{mapping.table.schema.db.name}_{mapping.table.schema.name}_{mapping.table.name}_{mapping.name}.sql",
                     )
+
+                    # Output transpiled file
                     mapping.transpiled_file = os.path.abspath(outputfile)
                     with open(mapping.transpiled_file, "w", encoding="utf-8") as f:
                         f.write(transpiled)
@@ -230,7 +202,6 @@ class batchTranspile:
                     f.write(str([expr]))
                     f.write("\n\nTranspiling:\n")
                     f.write(str(errormsg))
-                # raise errormsg
 
 
     def create_source_tables(self, drop=False):
@@ -269,9 +240,10 @@ class batchTranspile:
 
     def test_mappings(self):
         conn = dbxConnect()
-
         conn.set_parameter("meta_nr_mapping", "1")
         conn.set_parameter("meta_dt_snapshot", datetime.datetime.strptime("1900-01-01", "%Y-%m-%d"))
+
+        self.tested = True
 
         logdir = os.path.join(self.logdir, "parsing")
         self.flush_dir(logdir)
@@ -324,16 +296,17 @@ class batchTranspile:
         )
         print()
 
-        parse_succes = succeeded - len(self.test_errors)
-        print("Spark SQL parsing results")
-        print(f"Succeeded:\t{parse_succes}")
-        print(f"Failed:\t\t{len(self.test_errors)}")
-        print(f"Success ratio:\t{str(round(parse_succes / len(self.repo.mappings) * 100, 1))}%")
-        print()
-        print("Spark SQL parse error information:")
-        print(
-            self.test_errors.groupby(["database", "errortype"])
-            .agg(numErrors=("errortype", "count"))
-            .reset_index()
-            .set_index(["database", "errortype"])
-        )
+        if self.tested:
+            parse_succes = succeeded - len(self.test_errors)
+            print("Spark SQL parsing results")
+            print(f"Succeeded:\t{parse_succes}")
+            print(f"Failed:\t\t{len(self.test_errors)}")
+            print(f"Success ratio:\t{str(round(parse_succes / len(self.repo.mappings) * 100, 1))}%")
+            print()
+            print("Spark SQL parse error information:")
+            print(
+                self.test_errors.groupby(["database", "errortype"])
+                .agg(numErrors=("errortype", "count"))
+                .reset_index()
+                .set_index(["database", "errortype"])
+            )
