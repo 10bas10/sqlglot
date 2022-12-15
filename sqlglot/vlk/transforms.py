@@ -17,23 +17,9 @@ def transform(expression: exp.Expression, fun, *args) -> exp.Expression:
 
 def translate_add_to_dpipe(expression: exp.Expression) -> exp.Expression:
     if isinstance(expression, exp.Add):
-        string_datatype = (
-            exp.DataType.Type.NVARCHAR,
-            exp.DataType.Type.VARCHAR,
-            exp.DataType.Type.TEXT,
-            exp.DataType.Type.CHAR,
-            exp.DataType.Type.NCHAR,
-        )
-        date_datatype = (
-            exp.DataType.Type.DATETIME,
-            exp.DataType.Type.DATE,
-            exp.DataType.Type.TIMESTAMPLTZ,
-            exp.DataType.Type.TIMESTAMP,
-        )
-
-        if expression.this.type in string_datatype or expression.expression.type in string_datatype:
+        if expression.this.type.this in exp.DataType.TEXT_TYPES or expression.expression.type.this in exp.DataType.TEXT_TYPES:
             return exp.DPipe(this=expression.this, expression=expression.expression)
-        elif expression.this.type in date_datatype and expression.expression.type in date_datatype:
+        elif expression.this.type.this in exp.DataType.TEMPORAL_TYPES and expression.expression.type.this in exp.DataType.TEMPORAL_TYPES:
             return exp.UnixToStr(this=exp.Add(this=exp.StrToUnix(this=expression.this), expression=exp.StrToUnix(this=expression.this)))
 
     return expression
@@ -225,13 +211,14 @@ def translate_udtf(expression: exp.Expression, db_prefix) -> exp.Expression:
 
 def values_to_union(expression: exp.Expression) -> exp.Expression:
     if isinstance(expression, exp.Values):
+        table_alias = expression.args.get("alias")
         new_expr = None
         for tpl in expression.expressions:
             if new_expr is None:
                 new_expr = exp.Select(expressions=tpl.expressions)
             else:
                 new_expr = exp.Union(this=new_expr, expression=exp.Select(expressions=tpl.expressions))
-        return exp.Subquery(this=new_expr)
+        return exp.Subquery(this=new_expr, alias=table_alias)
 
     return expression
 
